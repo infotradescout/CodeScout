@@ -1,0 +1,365 @@
+openapi: 3.1.0
+info:
+  title: CodeScout Jurisdictional Code Mutation API
+  version: 1.0.0
+  summary: Event-sourced amendment submission contract for municipal code publication workflows.
+servers:
+  - url: https://api.codescout.example
+paths:
+  /api/v1/jurisdictions/{jurisdictionId}/code-mutations:
+    post:
+      operationId: submitJurisdictionalCodeMutation
+      summary: Submit a jurisdictional code mutation event for append-only processing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jurisdictionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JurisdictionalCodeMutationRequest"
+      responses:
+        "202":
+          description: Mutation accepted for event-sourced processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JurisdictionalCodeMutationResponse"
+        "400":
+          description: Request failed schema or business validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationFailure"
+        "401":
+          description: Missing or invalid bearer token.
+        "403":
+          description: Authenticated subject is not permitted to submit for the target jurisdiction.
+        "409":
+          description: Conflict with idempotency key or supersession chain.
+        "422":
+          description: Payload is syntactically valid but cannot be applied to the referenced provision state.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AmendmentAction:
+      type: string
+      enum:
+        - INHERIT_BASE
+        - AMEND
+        - DELETE
+    EventStatus:
+      type: string
+      enum:
+        - SUBMITTED
+        - APPROVED
+        - REJECTED
+        - SUPERSEDED
+    AuditSource:
+      type: string
+      enum:
+        - PORTAL
+        - API
+    SubmittedBy:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - email
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+        subjectId:
+          type: string
+    CompiledCodePayloadMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - generatedAt
+        - disclaimer
+        - computedStatus
+        - jurisdictionId
+        - provisionId
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        disclaimer:
+          type: string
+        computedStatus:
+          type: string
+          enum:
+            - BASE_CODE
+            - LOCALLY_AMENDED
+            - LOCALLY_DELETED
+        jurisdictionId:
+          type: string
+        provisionId:
+          type: string
+    JurisdictionalCodeMutationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - mutationType
+        - jurisdictionId
+        - codeFamily
+        - codeYear
+        - sectionNumber
+        - action
+        - sourceSystem
+        - externalMutationId
+        - submittedBy
+      properties:
+        mutationType:
+          type: string
+          const: JURISDICTIONAL_CODE_MUTATION
+        jurisdictionId:
+          type: string
+        codeFamily:
+          type: string
+        codeYear:
+          type: string
+        sectionNumber:
+          type: string
+        action:
+          $ref: "#/components/schemas/AmendmentAction"
+        amendedText:
+          type: string
+        ordinanceReference:
+          type: string
+        effectiveDate:
+          type: string
+          format: date
+        sourceSystem:
+          type: string
+        externalMutationId:
+          type: string
+        source:
+          $ref: "#/components/schemas/AuditSource"
+        sourceDocumentUrl:
+          type: string
+          format: uri
+        supersedesEventId:
+          type: string
+        submittedBy:
+          $ref: "#/components/schemas/SubmittedBy"
+    JurisdictionAmendmentEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - jurisdictionId
+        - modelProvisionId
+        - codeFamily
+        - codeYear
+        - sectionNumber
+        - action
+        - effectiveDate
+        - submittedBy
+        - submittedAt
+        - payloadHash
+        - status
+        - source
+      properties:
+        id:
+          type: string
+        jurisdictionId:
+          type: string
+        modelProvisionId:
+          type: string
+        codeFamily:
+          type: string
+        codeYear:
+          type: string
+        sectionNumber:
+          type: string
+        action:
+          $ref: "#/components/schemas/AmendmentAction"
+        amendedText:
+          type: string
+        ordinanceReference:
+          type: string
+        sourceDocumentUrl:
+          type: string
+          format: uri
+        effectiveDate:
+          type: string
+          format: date
+        submittedBy:
+          $ref: "#/components/schemas/SubmittedBy"
+        submittedAt:
+          type: string
+          format: date-time
+        supersedesEventId:
+          type: string
+        previousHash:
+          type: string
+        payloadHash:
+          type: string
+        status:
+          $ref: "#/components/schemas/EventStatus"
+        source:
+          $ref: "#/components/schemas/AuditSource"
+        externalMutationId:
+          type: string
+        idempotencyKey:
+          type: string
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - eventType
+        - occurredAt
+        - authenticatedSubject
+        - beforeState
+        - afterState
+        - previousHash
+        - eventHash
+        - source
+        - mutationEventId
+      properties:
+        id:
+          type: string
+        eventType:
+          type: string
+          const: JURISDICTION_CODE_MUTATION_SUBMITTED
+        occurredAt:
+          type: string
+          format: date-time
+        authenticatedSubject:
+          $ref: "#/components/schemas/SubmittedBy"
+        beforeState:
+          $ref: "#/components/schemas/ComputedEffectiveProvision"
+        afterState:
+          $ref: "#/components/schemas/ComputedEffectiveProvision"
+        previousHash:
+          type: string
+        eventHash:
+          type: string
+        source:
+          $ref: "#/components/schemas/AuditSource"
+        mutationEventId:
+          type: string
+    ComputedEffectiveProvision:
+      type: object
+      additionalProperties: false
+      required:
+        - jurisdictionId
+        - provisionId
+        - codeFamily
+        - codeYear
+        - sectionNumber
+        - title
+        - baseText
+        - amendedText
+        - displayText
+        - status
+        - ordinanceReference
+        - effectiveDate
+        - eventId
+        - previousHash
+        - payloadHash
+        - metadata
+      properties:
+        jurisdictionId:
+          type: string
+        provisionId:
+          type: string
+        codeFamily:
+          type: string
+        codeYear:
+          type: string
+        sectionNumber:
+          type: string
+        title:
+          type: string
+        baseText:
+          type: string
+        amendedText:
+          type:
+            - string
+            - "null"
+        displayText:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum:
+            - BASE_CODE
+            - LOCALLY_AMENDED
+            - LOCALLY_DELETED
+        ordinanceReference:
+          type:
+            - string
+            - "null"
+        effectiveDate:
+          type:
+            - string
+            - "null"
+        eventId:
+          type:
+            - string
+            - "null"
+        previousHash:
+          type:
+            - string
+            - "null"
+        payloadHash:
+          type:
+            - string
+            - "null"
+        metadata:
+          $ref: "#/components/schemas/CompiledCodePayloadMetadata"
+    ValidationFailure:
+      type: object
+      additionalProperties: false
+      required:
+        - errors
+      properties:
+        errors:
+          type: array
+          items:
+            type: string
+    JurisdictionalCodeMutationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - mutationAccepted
+        - event
+        - auditEvent
+        - compiledProvision
+        - metadata
+      properties:
+        mutationAccepted:
+          type: boolean
+          const: true
+        event:
+          $ref: "#/components/schemas/JurisdictionAmendmentEvent"
+        auditEvent:
+          $ref: "#/components/schemas/AuditEvent"
+        compiledProvision:
+          $ref: "#/components/schemas/ComputedEffectiveProvision"
+        metadata:
+          $ref: "#/components/schemas/CompiledCodePayloadMetadata"
