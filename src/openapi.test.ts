@@ -32,7 +32,15 @@ describe("openapi contract", () => {
   });
 
   it("aligns validation failure shape", () => {
-    expect(openApi).toContain("ValidationFailure");
-    expect(openApi).toContain("- errors");
+    expect(openApi).toContain("ValidationFailureResponse");
+    expect(openApi).toContain("VALIDATION_FAILED");
+    expect(openApi).toContain("failedMutationAttemptId");
+  });
+
+  it("documents accepted response identifiers and projection", () => {
+    expect(openApi).toContain("jurisdictionAmendmentEventId");
+    expect(openApi).toContain("auditEventId");
+    expect(openApi).toContain("computedEffectiveStatus");
+    expect(openApi).toContain("projection");
   });
 });

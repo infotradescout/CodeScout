@@ -28,6 +28,7 @@ export type AuthenticatedSubject = {
   name: string;
   email: string;
   role: string;
+  authorizedJurisdictionIds?: string[];
 };
 
 export type JurisdictionAmendmentEvent = {

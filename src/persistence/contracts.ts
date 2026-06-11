@@ -19,6 +19,7 @@ export interface AmendmentEventStore {
 export interface AuditEventStore {
   append(event: AuditEvent): Promise<void>;
   listByMutationEventId(mutationEventId: string): Promise<AuditEvent[]>;
+  listAll(): Promise<AuditEvent[]>;
 }
 
 export interface FailedMutationAttemptStore {

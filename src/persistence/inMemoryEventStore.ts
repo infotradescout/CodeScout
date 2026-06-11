@@ -90,6 +90,10 @@ class InMemoryAuditEventStore implements AuditEventStore {
   async listByMutationEventId(mutationEventId: string): Promise<AuditEvent[]> {
     return cloneValue(this.events.filter((event) => event.mutationEventId === mutationEventId));
   }
+
+  async listAll(): Promise<AuditEvent[]> {
+    return cloneValue(this.events);
+  }
 }
 
 class InMemoryFailedMutationAttemptStore implements FailedMutationAttemptStore {

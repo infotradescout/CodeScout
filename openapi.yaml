@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: CodeScout Jurisdictional Code Mutation API
   version: 1.0.0
-  summary: Event-sourced amendment submission contract for municipal code publication workflows.
+  summary: Simulated append-only mutation handling contract for municipal code publication workflows.
 servers:
   - url: https://api.codescout.example
 paths:
@@ -31,25 +31,41 @@ paths:
               $ref: "#/components/schemas/JurisdictionalCodeMutationRequest"
       responses:
         "202":
-          description: Mutation accepted for event-sourced processing.
+          description: Mutation accepted for append-only processing and projection rebuild.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JurisdictionalCodeMutationResponse"
+                $ref: "#/components/schemas/AcceptedMutationResponse"
         "400":
           description: Request failed schema or business validation.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ValidationFailure"
+                $ref: "#/components/schemas/ValidationFailureResponse"
         "401":
-          description: Missing or invalid bearer token.
+          description: Missing or invalid authenticated subject in the simulated handler input.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnauthorizedResponse"
         "403":
           description: Authenticated subject is not permitted to submit for the target jurisdiction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenResponse"
         "409":
-          description: Conflict with idempotency key or supersession chain.
+          description: Conflict with idempotency key or append-only event identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConflictResponse"
         "422":
           description: Payload is syntactically valid but cannot be applied to the referenced provision state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseProvisionNotFoundResponse"
 components:
   securitySchemes:
     bearerAuth:
@@ -75,6 +91,12 @@ components:
       enum:
         - PORTAL
         - API
+    EffectiveProvisionStatus:
+      type: string
+      enum:
+        - BASE_CODE
+        - LOCALLY_AMENDED
+        - LOCALLY_DELETED
     SubmittedBy:
       type: object
       additionalProperties: false
@@ -107,14 +129,22 @@ components:
         disclaimer:
           type: string
         computedStatus:
-          type: string
-          enum:
-            - BASE_CODE
-            - LOCALLY_AMENDED
-            - LOCALLY_DELETED
+          $ref: "#/components/schemas/EffectiveProvisionStatus"
         jurisdictionId:
           type: string
         provisionId:
+          type: string
+    ResponseMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - generatedAt
+        - disclaimer
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        disclaimer:
           type: string
     JurisdictionalCodeMutationRequest:
       type: object
@@ -163,104 +193,6 @@ components:
           type: string
         submittedBy:
           $ref: "#/components/schemas/SubmittedBy"
-    JurisdictionAmendmentEvent:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - jurisdictionId
-        - modelProvisionId
-        - codeFamily
-        - codeYear
-        - sectionNumber
-        - action
-        - effectiveDate
-        - submittedBy
-        - submittedAt
-        - payloadHash
-        - status
-        - source
-      properties:
-        id:
-          type: string
-        jurisdictionId:
-          type: string
-        modelProvisionId:
-          type: string
-        codeFamily:
-          type: string
-        codeYear:
-          type: string
-        sectionNumber:
-          type: string
-        action:
-          $ref: "#/components/schemas/AmendmentAction"
-        amendedText:
-          type: string
-        ordinanceReference:
-          type: string
-        sourceDocumentUrl:
-          type: string
-          format: uri
-        effectiveDate:
-          type: string
-          format: date
-        submittedBy:
-          $ref: "#/components/schemas/SubmittedBy"
-        submittedAt:
-          type: string
-          format: date-time
-        supersedesEventId:
-          type: string
-        previousHash:
-          type: string
-        payloadHash:
-          type: string
-        status:
-          $ref: "#/components/schemas/EventStatus"
-        source:
-          $ref: "#/components/schemas/AuditSource"
-        externalMutationId:
-          type: string
-        idempotencyKey:
-          type: string
-    AuditEvent:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - eventType
-        - occurredAt
-        - authenticatedSubject
-        - beforeState
-        - afterState
-        - previousHash
-        - eventHash
-        - source
-        - mutationEventId
-      properties:
-        id:
-          type: string
-        eventType:
-          type: string
-          const: JURISDICTION_CODE_MUTATION_SUBMITTED
-        occurredAt:
-          type: string
-          format: date-time
-        authenticatedSubject:
-          $ref: "#/components/schemas/SubmittedBy"
-        beforeState:
-          $ref: "#/components/schemas/ComputedEffectiveProvision"
-        afterState:
-          $ref: "#/components/schemas/ComputedEffectiveProvision"
-        previousHash:
-          type: string
-        eventHash:
-          type: string
-        source:
-          $ref: "#/components/schemas/AuditSource"
-        mutationEventId:
-          type: string
     ComputedEffectiveProvision:
       type: object
       additionalProperties: false
@@ -305,11 +237,7 @@ components:
             - string
             - "null"
         status:
-          type: string
-          enum:
-            - BASE_CODE
-            - LOCALLY_AMENDED
-            - LOCALLY_DELETED
+          $ref: "#/components/schemas/EffectiveProvisionStatus"
         ordinanceReference:
           type:
             - string
@@ -332,34 +260,150 @@ components:
             - "null"
         metadata:
           $ref: "#/components/schemas/CompiledCodePayloadMetadata"
-    ValidationFailure:
+    ProjectionRecord:
       type: object
       additionalProperties: false
       required:
-        - errors
+        - jurisdictionId
+        - provisionId
+        - compiledProvision
       properties:
-        errors:
+        jurisdictionId:
+          type: string
+        provisionId:
+          type: string
+        asOfDate:
+          type: string
+          format: date
+        compiledProvision:
+          $ref: "#/components/schemas/ComputedEffectiveProvision"
+    AcceptedMutationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - mutationId
+        - jurisdictionAmendmentEventId
+        - auditEventId
+        - computedEffectiveStatus
+        - projection
+        - metadata
+      properties:
+        status:
+          type: string
+          const: ACCEPTED
+        mutationId:
+          type: string
+        jurisdictionAmendmentEventId:
+          type: string
+        auditEventId:
+          type: string
+        computedEffectiveStatus:
+          $ref: "#/components/schemas/EffectiveProvisionStatus"
+        projection:
+          $ref: "#/components/schemas/ProjectionRecord"
+        metadata:
+          $ref: "#/components/schemas/ResponseMetadata"
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - CONFLICT
+            - BASE_PROVISION_NOT_FOUND
+        message:
+          type: string
+        issues:
           type: array
           items:
             type: string
-    JurisdictionalCodeMutationResponse:
+    ErrorResponse:
       type: object
       additionalProperties: false
       required:
-        - mutationAccepted
-        - event
-        - auditEvent
-        - compiledProvision
+        - status
+        - error
         - metadata
       properties:
-        mutationAccepted:
-          type: boolean
-          const: true
-        event:
-          $ref: "#/components/schemas/JurisdictionAmendmentEvent"
-        auditEvent:
-          $ref: "#/components/schemas/AuditEvent"
-        compiledProvision:
-          $ref: "#/components/schemas/ComputedEffectiveProvision"
+        status:
+          type: string
+          const: REJECTED
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+        failedMutationAttemptId:
+          type: string
         metadata:
-          $ref: "#/components/schemas/CompiledCodePayloadMetadata"
+          $ref: "#/components/schemas/ResponseMetadata"
+    ValidationFailureResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            error:
+              allOf:
+                - $ref: "#/components/schemas/ErrorDetail"
+                - type: object
+                  properties:
+                    code:
+                      type: string
+                      const: VALIDATION_FAILED
+    UnauthorizedResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            error:
+              allOf:
+                - $ref: "#/components/schemas/ErrorDetail"
+                - type: object
+                  properties:
+                    code:
+                      type: string
+                      const: UNAUTHENTICATED
+    ForbiddenResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            error:
+              allOf:
+                - $ref: "#/components/schemas/ErrorDetail"
+                - type: object
+                  properties:
+                    code:
+                      type: string
+                      const: FORBIDDEN
+    ConflictResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            error:
+              allOf:
+                - $ref: "#/components/schemas/ErrorDetail"
+                - type: object
+                  properties:
+                    code:
+                      type: string
+                      const: CONFLICT
+    BaseProvisionNotFoundResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            error:
+              allOf:
+                - $ref: "#/components/schemas/ErrorDetail"
+                - type: object
+                  properties:
+                    code:
+                      type: string
+                      const: BASE_PROVISION_NOT_FOUND
