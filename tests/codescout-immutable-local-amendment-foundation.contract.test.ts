@@ -93,6 +93,7 @@ describe("codescout immutable local amendment foundation", () => {
 
     expect(result.evidenceCompleteness).toBe("missing");
     expect(result.evidenceStatus).toBe(EvidenceStatus.incomplete);
+    expect(result.missingFieldPaths).toEqual(["baseProvision.evidence"]);
   });
 
   it("empty amendment evidence produces incomplete or unverified evidence status", () => {
@@ -103,6 +104,7 @@ describe("codescout immutable local amendment foundation", () => {
 
     expect(result.evidenceCompleteness).toBe("missing");
     expect(result.evidenceStatus).toBe(EvidenceStatus.incomplete);
+    expect(result.missingFieldPaths).toEqual(["localAmendments.amendment-1.evidence"]);
   });
 
   it("any LocalAmendment without actorId is rejected", () => {
@@ -143,6 +145,42 @@ describe("codescout immutable local amendment foundation", () => {
 
     expect(left).toBe(right);
     expect(JSON.parse(left).computedAt).toBe("2026-06-13T12:00:00.000Z");
+  });
+
+  it("computeEffectiveProvision rejects missing computedAt", () => {
+    expect(() =>
+      computeEffectiveProvision(createBaseProvision(), [createAmendment()], {
+        computedAt: "" as never,
+        computedByActorId: "actor-3",
+      }),
+    ).toThrow(/computedAt is required/i);
+  });
+
+  it("computeEffectiveProvision rejects missing computedByActorId", () => {
+    expect(() =>
+      computeEffectiveProvision(createBaseProvision(), [createAmendment()], {
+        computedAt: "2026-06-13T12:00:00.000Z",
+        computedByActorId: "",
+      }),
+    ).toThrow(/computedByActorId is required/i);
+  });
+
+  it("computeEffectiveProvision does not default computedAt to epoch", () => {
+    expect(() =>
+      computeEffectiveProvision(createBaseProvision(), [createAmendment()], {
+        computedAt: undefined as never,
+        computedByActorId: "actor-3",
+      }),
+    ).toThrow(/computedAt is required/i);
+  });
+
+  it("computeEffectiveProvision does not use Date.now or generated runtime timestamps", () => {
+    const provision = computeEffectiveProvision(createBaseProvision(), [createAmendment()], {
+      computedAt: "2024-01-02T03:04:05.678Z",
+      computedByActorId: "actor-3",
+    });
+
+    expect(provision.computedAt).toBe("2024-01-02T03:04:05.678Z");
   });
 
   it("banned authority terms are not present in exported field names or serialized status values", () => {

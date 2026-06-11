@@ -89,10 +89,11 @@ type EvidenceCompletenessResult = {
   evidenceCompleteness: ComputedEffectiveProvision["evidenceCompleteness"];
   ambiguities: string[];
   evidenceStatus: EvidenceStatus;
+  missingFieldPaths: string[];
 };
 
 type ComputeOptions = {
-  computedAt?: string;
+  computedAt: string;
   computedByActorId: string;
 };
 
@@ -146,6 +147,7 @@ export function assertEvidenceCompleteness(
   provision: Pick<ComputedEffectiveProvision, "baseProvision" | "localAmendments">,
 ): EvidenceCompletenessResult {
   const ambiguities: string[] = [];
+  const missingFieldPaths: string[] = [];
   let missingEvidence = false;
   let hasUnverifiedEvidence = false;
   let hasAmbiguousEvidence = false;
@@ -153,6 +155,7 @@ export function assertEvidenceCompleteness(
   if (provision.baseProvision.evidence.length === 0) {
     missingEvidence = true;
     ambiguities.push("Base provision evidence is missing.");
+    missingFieldPaths.push("baseProvision.evidence");
   }
 
   for (const record of provision.baseProvision.evidence) {
@@ -168,6 +171,7 @@ export function assertEvidenceCompleteness(
       hasAmbiguousEvidence = true;
     } else if (record.evidenceStatus === EvidenceStatus.incomplete) {
       missingEvidence = true;
+      missingFieldPaths.push(`baseProvision.evidence.${record.id}`);
     } else if (record.evidenceStatus === EvidenceStatus.unverified) {
       hasUnverifiedEvidence = true;
     }
@@ -178,6 +182,7 @@ export function assertEvidenceCompleteness(
     if (amendment.evidence.length === 0) {
       missingEvidence = true;
       ambiguities.push(`Local amendment ${amendment.id} evidence is missing.`);
+      missingFieldPaths.push(`localAmendments.${amendment.id}.evidence`);
     }
 
     for (const record of amendment.evidence) {
@@ -193,6 +198,7 @@ export function assertEvidenceCompleteness(
         hasAmbiguousEvidence = true;
       } else if (record.evidenceStatus === EvidenceStatus.incomplete) {
         missingEvidence = true;
+        missingFieldPaths.push(`localAmendments.${amendment.id}.evidence.${record.id}`);
       } else if (record.evidenceStatus === EvidenceStatus.unverified) {
         hasUnverifiedEvidence = true;
       }
@@ -209,6 +215,7 @@ export function assertEvidenceCompleteness(
       evidenceCompleteness: "ambiguous",
       ambiguities,
       evidenceStatus: EvidenceStatus.ambiguous,
+      missingFieldPaths,
     };
   }
 
@@ -217,6 +224,7 @@ export function assertEvidenceCompleteness(
       evidenceCompleteness: "missing",
       ambiguities,
       evidenceStatus: EvidenceStatus.incomplete,
+      missingFieldPaths,
     };
   }
 
@@ -225,6 +233,7 @@ export function assertEvidenceCompleteness(
       evidenceCompleteness: "partial",
       ambiguities,
       evidenceStatus: EvidenceStatus.unverified,
+      missingFieldPaths,
     };
   }
 
@@ -232,6 +241,7 @@ export function assertEvidenceCompleteness(
     evidenceCompleteness: "complete",
     ambiguities,
     evidenceStatus: EvidenceStatus.source_backed,
+    missingFieldPaths,
   };
 }
 
@@ -241,7 +251,11 @@ export function computeEffectiveProvision(
   options: ComputeOptions,
 ): ComputedEffectiveProvision {
   assertNonEmptyString(baseCode.id, "baseProvision.id");
+  assertNonEmptyString(options.computedAt, "computedAt");
   assertNonEmptyString(options.computedByActorId, "computedByActorId");
+  if (!isIsoTimestamp(options.computedAt)) {
+    throw new Error("computedAt must be a valid ISO timestamp");
+  }
 
   const scopedAmendments = sortAmendments(amendments.filter((amendment) => amendment.affectedBaseProvisionId === baseCode.id));
   const evidenceResult = assertEvidenceCompleteness({
@@ -250,10 +264,7 @@ export function computeEffectiveProvision(
   });
 
   const latestAmendment = scopedAmendments[0];
-  const computedAt = options.computedAt ?? "1970-01-01T00:00:00.000Z";
-  if (!isIsoTimestamp(computedAt)) {
-    throw new Error("computedAt must be a valid ISO timestamp");
-  }
+  const computedAt = options.computedAt;
 
   let effectiveText = baseCode.text;
   let supersessionStatus: SupersessionStatus = SupersessionStatus.no_local_change;
