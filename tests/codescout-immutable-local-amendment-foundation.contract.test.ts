@@ -94,6 +94,15 @@ describe("codescout immutable local amendment foundation", () => {
     expect(result.evidenceCompleteness).toBe("missing");
     expect(result.evidenceStatus).toBe(EvidenceStatus.incomplete);
     expect(result.missingFieldPaths).toEqual(["baseProvision.evidence"]);
+    expect(result.missingEvidenceDetails).toEqual([
+      {
+        fieldPath: "baseProvision.evidence",
+        entityType: "baseProvision",
+        entityId: "irc-2021-r301-2-1",
+        reason: "missing_evidence",
+        message: "Base provision irc-2021-r301-2-1 has no evidence records.",
+      },
+    ]);
   });
 
   it("empty amendment evidence produces incomplete or unverified evidence status", () => {
@@ -105,6 +114,51 @@ describe("codescout immutable local amendment foundation", () => {
     expect(result.evidenceCompleteness).toBe("missing");
     expect(result.evidenceStatus).toBe(EvidenceStatus.incomplete);
     expect(result.missingFieldPaths).toEqual(["localAmendments.amendment-1.evidence"]);
+    expect(result.missingEvidenceDetails).toEqual([
+      {
+        fieldPath: "localAmendments.amendment-1.evidence",
+        entityType: "localAmendment",
+        entityId: "amendment-1",
+        reason: "missing_evidence",
+        message: "Local amendment amendment-1 has no evidence records.",
+      },
+    ]);
+  });
+
+  it("incomplete evidence records produce structured readable missing evidence details", () => {
+    const result = assertEvidenceCompleteness({
+      baseProvision: createBaseProvision({
+        evidence: [createEvidence({ id: "base-incomplete", evidenceStatus: EvidenceStatus.incomplete })],
+      }),
+      localAmendments: [
+        createAmendment({
+          evidence: [createEvidence({ id: "amendment-incomplete", evidenceStatus: EvidenceStatus.incomplete })],
+        }),
+      ],
+    });
+
+    expect(result.evidenceCompleteness).toBe("missing");
+    expect(result.evidenceStatus).toBe(EvidenceStatus.incomplete);
+    expect(result.missingFieldPaths).toEqual([
+      "baseProvision.evidence.base-incomplete",
+      "localAmendments.amendment-1.evidence.amendment-incomplete",
+    ]);
+    expect(result.missingEvidenceDetails).toEqual([
+      {
+        fieldPath: "baseProvision.evidence.base-incomplete",
+        entityType: "evidenceRecord",
+        entityId: "base-incomplete",
+        reason: "incomplete_evidence",
+        message: "Evidence record base-incomplete for base provision irc-2021-r301-2-1 is marked incomplete.",
+      },
+      {
+        fieldPath: "localAmendments.amendment-1.evidence.amendment-incomplete",
+        entityType: "evidenceRecord",
+        entityId: "amendment-incomplete",
+        reason: "incomplete_evidence",
+        message: "Evidence record amendment-incomplete for local amendment amendment-1 is marked incomplete.",
+      },
+    ]);
   });
 
   it("any LocalAmendment without actorId is rejected", () => {

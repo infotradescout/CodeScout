@@ -85,16 +85,25 @@ export type ComputedEffectiveProvision = {
   computedByActorId: string;
 };
 
-type EvidenceCompletenessResult = {
+export type EvidenceCompletenessResult = {
   evidenceCompleteness: ComputedEffectiveProvision["evidenceCompleteness"];
   ambiguities: string[];
   evidenceStatus: EvidenceStatus;
   missingFieldPaths: string[];
+  missingEvidenceDetails: MissingEvidenceDetail[];
 };
 
 type ComputeOptions = {
   computedAt: string;
   computedByActorId: string;
+};
+
+export type MissingEvidenceDetail = {
+  fieldPath: string;
+  entityType: "baseProvision" | "localAmendment" | "evidenceRecord";
+  entityId: string;
+  reason: "missing_evidence" | "incomplete_evidence";
+  message: string;
 };
 
 function isIsoTimestamp(value: string | undefined): value is string {
@@ -148,6 +157,7 @@ export function assertEvidenceCompleteness(
 ): EvidenceCompletenessResult {
   const ambiguities: string[] = [];
   const missingFieldPaths: string[] = [];
+  const missingEvidenceDetails: MissingEvidenceDetail[] = [];
   let missingEvidence = false;
   let hasUnverifiedEvidence = false;
   let hasAmbiguousEvidence = false;
@@ -156,6 +166,13 @@ export function assertEvidenceCompleteness(
     missingEvidence = true;
     ambiguities.push("Base provision evidence is missing.");
     missingFieldPaths.push("baseProvision.evidence");
+    missingEvidenceDetails.push({
+      fieldPath: "baseProvision.evidence",
+      entityType: "baseProvision",
+      entityId: provision.baseProvision.id,
+      reason: "missing_evidence",
+      message: `Base provision ${provision.baseProvision.id} has no evidence records.`,
+    });
   }
 
   for (const record of provision.baseProvision.evidence) {
@@ -171,7 +188,15 @@ export function assertEvidenceCompleteness(
       hasAmbiguousEvidence = true;
     } else if (record.evidenceStatus === EvidenceStatus.incomplete) {
       missingEvidence = true;
-      missingFieldPaths.push(`baseProvision.evidence.${record.id}`);
+      const fieldPath = `baseProvision.evidence.${record.id}`;
+      missingFieldPaths.push(fieldPath);
+      missingEvidenceDetails.push({
+        fieldPath,
+        entityType: "evidenceRecord",
+        entityId: record.id,
+        reason: "incomplete_evidence",
+        message: `Evidence record ${record.id} for base provision ${provision.baseProvision.id} is marked incomplete.`,
+      });
     } else if (record.evidenceStatus === EvidenceStatus.unverified) {
       hasUnverifiedEvidence = true;
     }
@@ -183,6 +208,13 @@ export function assertEvidenceCompleteness(
       missingEvidence = true;
       ambiguities.push(`Local amendment ${amendment.id} evidence is missing.`);
       missingFieldPaths.push(`localAmendments.${amendment.id}.evidence`);
+      missingEvidenceDetails.push({
+        fieldPath: `localAmendments.${amendment.id}.evidence`,
+        entityType: "localAmendment",
+        entityId: amendment.id,
+        reason: "missing_evidence",
+        message: `Local amendment ${amendment.id} has no evidence records.`,
+      });
     }
 
     for (const record of amendment.evidence) {
@@ -198,7 +230,15 @@ export function assertEvidenceCompleteness(
         hasAmbiguousEvidence = true;
       } else if (record.evidenceStatus === EvidenceStatus.incomplete) {
         missingEvidence = true;
-        missingFieldPaths.push(`localAmendments.${amendment.id}.evidence.${record.id}`);
+        const fieldPath = `localAmendments.${amendment.id}.evidence.${record.id}`;
+        missingFieldPaths.push(fieldPath);
+        missingEvidenceDetails.push({
+          fieldPath,
+          entityType: "evidenceRecord",
+          entityId: record.id,
+          reason: "incomplete_evidence",
+          message: `Evidence record ${record.id} for local amendment ${amendment.id} is marked incomplete.`,
+        });
       } else if (record.evidenceStatus === EvidenceStatus.unverified) {
         hasUnverifiedEvidence = true;
       }
@@ -216,6 +256,7 @@ export function assertEvidenceCompleteness(
       ambiguities,
       evidenceStatus: EvidenceStatus.ambiguous,
       missingFieldPaths,
+      missingEvidenceDetails,
     };
   }
 
@@ -225,6 +266,7 @@ export function assertEvidenceCompleteness(
       ambiguities,
       evidenceStatus: EvidenceStatus.incomplete,
       missingFieldPaths,
+      missingEvidenceDetails,
     };
   }
 
@@ -234,6 +276,7 @@ export function assertEvidenceCompleteness(
       ambiguities,
       evidenceStatus: EvidenceStatus.unverified,
       missingFieldPaths,
+      missingEvidenceDetails,
     };
   }
 
@@ -242,6 +285,7 @@ export function assertEvidenceCompleteness(
     ambiguities,
     evidenceStatus: EvidenceStatus.source_backed,
     missingFieldPaths,
+    missingEvidenceDetails,
   };
 }
 
