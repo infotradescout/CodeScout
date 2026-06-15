@@ -24,9 +24,49 @@ export const SupersessionStatus = {
   unverified: "unverified",
 } as const;
 
+export const MunicipalDocumentType = {
+  building_code: "building_code",
+  zoning_ordinance: "zoning_ordinance",
+  local_amendment: "local_amendment",
+  ordinance: "ordinance",
+  resolution: "resolution",
+  policy: "policy",
+  official_guidance: "official_guidance",
+  other: "other",
+} as const;
+
+export const SourceAcquisitionMethod = {
+  direct_upload: "direct_upload",
+  official_site_pull: "official_site_pull",
+  operator_entered: "operator_entered",
+  public_record_request: "public_record_request",
+  archival_copy: "archival_copy",
+} as const;
+
+export const EffectiveDateBasis = {
+  date_of_passage: "date_of_passage",
+  date_published: "date_published",
+  stated_effective_date: "stated_effective_date",
+  codified_date: "codified_date",
+  unknown: "unknown",
+} as const;
+
+export const MunicipalIntakeReviewStatus = {
+  unreviewed: "unreviewed",
+  operator_verified: "operator_verified",
+  flagged_needs_reconciliation: "flagged_needs_reconciliation",
+  rejected: "rejected",
+  superseded: "superseded",
+} as const;
+
 export type EvidenceStatus = (typeof EvidenceStatus)[keyof typeof EvidenceStatus];
 export type SourceType = (typeof SourceType)[keyof typeof SourceType];
 export type SupersessionStatus = (typeof SupersessionStatus)[keyof typeof SupersessionStatus];
+export type MunicipalDocumentType = (typeof MunicipalDocumentType)[keyof typeof MunicipalDocumentType];
+export type SourceAcquisitionMethod = (typeof SourceAcquisitionMethod)[keyof typeof SourceAcquisitionMethod];
+export type EffectiveDateBasis = (typeof EffectiveDateBasis)[keyof typeof EffectiveDateBasis];
+export type MunicipalIntakeReviewStatus =
+  (typeof MunicipalIntakeReviewStatus)[keyof typeof MunicipalIntakeReviewStatus];
 
 export type ModelCodeProvision = {
   id: string;
@@ -70,6 +110,31 @@ export type EvidenceRecord = {
   timestamp: string;
   supportsFieldPaths: string[];
   evidenceStatus: EvidenceStatus;
+  municipalIntakeEvidence?: MunicipalIntakeEvidence;
+};
+
+export type MunicipalIntakeEvidence = {
+  sourceDocumentId: string;
+  sourceDocumentTitle: string;
+  sourceLocator: string;
+  publicationDate?: string;
+  jurisdiction: {
+    name: string;
+    state: string;
+    county?: string;
+    geopoliticalCode?: string;
+  };
+  documentType: MunicipalDocumentType;
+  acquisitionMethod: SourceAcquisitionMethod;
+  effectiveDateBasis: EffectiveDateBasis;
+  adoptionOrAmendmentReference?: {
+    referenceType: "ordinance_number" | "resolution_id" | "amendment_id" | "meeting_reference" | "not_applicable";
+    value?: string;
+    notApplicableReason?: string;
+  };
+  sectionOrProvisionCitation: string;
+  extractionActorId: string;
+  reviewStatus: MunicipalIntakeReviewStatus;
 };
 
 export type ComputedEffectiveProvision = {
@@ -102,7 +167,17 @@ export type MissingEvidenceDetail = {
   fieldPath: string;
   entityType: "baseProvision" | "localAmendment" | "evidenceRecord";
   entityId: string;
-  reason: "missing_evidence" | "incomplete_evidence";
+  reason:
+    | "missing_evidence"
+    | "incomplete_evidence"
+    | "missing_municipal_intake_evidence"
+    | "uncertain_municipal_intake_evidence";
+  code:
+    | "MISSING_EVIDENCE"
+    | "INCOMPLETE_EVIDENCE"
+    | "MISSING_MUNICIPAL_INTAKE_EVIDENCE"
+    | "UNCERTAIN_MUNICIPAL_INTAKE_EVIDENCE";
+  severity: "blocking" | "review_required";
   message: string;
 };
 
@@ -122,6 +197,139 @@ function assertNonEmptyString(value: string | undefined, fieldName: string) {
 
 function hasSourceLocator(record: EvidenceRecord): boolean {
   return Boolean((record.url && record.url.trim()) || (record.sourceIdentifier && record.sourceIdentifier.trim()));
+}
+
+function isIsoDate(value: string | undefined): value is string {
+  if (!value) {
+    return false;
+  }
+
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
+}
+
+function isMissingString(value: string | undefined): boolean {
+  return !value || value.trim().length === 0;
+}
+
+function createEvidenceDetail(
+  fieldPath: string,
+  entityId: string,
+  message: string,
+  input: Pick<MissingEvidenceDetail, "reason" | "code" | "severity">,
+): MissingEvidenceDetail {
+  return {
+    fieldPath,
+    entityType: "evidenceRecord",
+    entityId,
+    reason: input.reason,
+    code: input.code,
+    severity: input.severity,
+    message,
+  };
+}
+
+function validateMunicipalIntakeEvidence(
+  record: EvidenceRecord,
+  fieldPathPrefix: string,
+): MissingEvidenceDetail[] {
+  const details: MissingEvidenceDetail[] = [];
+  const intake = record.municipalIntakeEvidence;
+
+  const missing = (fieldPath: string, message: string) => {
+    details.push(
+      createEvidenceDetail(`${fieldPathPrefix}.${record.id}.municipalIntakeEvidence.${fieldPath}`, record.id, message, {
+        reason: "missing_municipal_intake_evidence",
+        code: "MISSING_MUNICIPAL_INTAKE_EVIDENCE",
+        severity: "blocking",
+      }),
+    );
+  };
+
+  const uncertain = (fieldPath: string, message: string) => {
+    details.push(
+      createEvidenceDetail(`${fieldPathPrefix}.${record.id}.municipalIntakeEvidence.${fieldPath}`, record.id, message, {
+        reason: "uncertain_municipal_intake_evidence",
+        code: "UNCERTAIN_MUNICIPAL_INTAKE_EVIDENCE",
+        severity: "review_required",
+      }),
+    );
+  };
+
+  if (!intake) {
+    missing("root", `Evidence record ${record.id} is missing municipal intake evidence.`);
+    return details;
+  }
+
+  if (isMissingString(intake.sourceDocumentId)) {
+    missing("sourceDocumentId", `Evidence record ${record.id} is missing source document identity.`);
+  }
+  if (isMissingString(intake.sourceDocumentTitle)) {
+    missing("sourceDocumentTitle", `Evidence record ${record.id} is missing source document title.`);
+  }
+  if (isMissingString(intake.sourceLocator)) {
+    missing("sourceLocator", `Evidence record ${record.id} is missing verified source locator.`);
+  }
+  if (intake.publicationDate && !isIsoDate(intake.publicationDate)) {
+    missing("publicationDate", `Evidence record ${record.id} publicationDate must be YYYY-MM-DD when present.`);
+  }
+  if (!intake.publicationDate) {
+    uncertain("publicationDate", `Evidence record ${record.id} does not include a known publication date.`);
+  }
+  if (isMissingString(intake.jurisdiction?.name)) {
+    missing("jurisdiction.name", `Evidence record ${record.id} is missing jurisdiction identity.`);
+  }
+  if (isMissingString(intake.jurisdiction?.state)) {
+    missing("jurisdiction.state", `Evidence record ${record.id} is missing jurisdiction state.`);
+  }
+  if (!intake.jurisdiction?.geopoliticalCode) {
+    uncertain("jurisdiction.geopoliticalCode", `Evidence record ${record.id} does not include a FIPS or geopolitical code.`);
+  }
+  if (!Object.values(MunicipalDocumentType).includes(intake.documentType)) {
+    missing("documentType", `Evidence record ${record.id} is missing municipal document type.`);
+  }
+  if (!Object.values(SourceAcquisitionMethod).includes(intake.acquisitionMethod)) {
+    missing("acquisitionMethod", `Evidence record ${record.id} is missing source acquisition method.`);
+  }
+  if (!Object.values(EffectiveDateBasis).includes(intake.effectiveDateBasis)) {
+    missing("effectiveDateBasis", `Evidence record ${record.id} is missing effective date basis.`);
+  } else if (intake.effectiveDateBasis === EffectiveDateBasis.unknown) {
+    uncertain("effectiveDateBasis", `Evidence record ${record.id} has unknown effective date basis.`);
+  }
+  if (!intake.adoptionOrAmendmentReference) {
+    uncertain(
+      "adoptionOrAmendmentReference",
+      `Evidence record ${record.id} does not include an adoption or amendment reference.`,
+    );
+  } else if (
+    intake.adoptionOrAmendmentReference.referenceType === "not_applicable" &&
+    isMissingString(intake.adoptionOrAmendmentReference.notApplicableReason)
+  ) {
+    uncertain(
+      "adoptionOrAmendmentReference.notApplicableReason",
+      `Evidence record ${record.id} marks adoption reference not applicable without a reason.`,
+    );
+  } else if (
+    intake.adoptionOrAmendmentReference.referenceType !== "not_applicable" &&
+    isMissingString(intake.adoptionOrAmendmentReference.value)
+  ) {
+    uncertain(
+      "adoptionOrAmendmentReference.value",
+      `Evidence record ${record.id} does not include an adoption or amendment reference value.`,
+    );
+  }
+  if (isMissingString(intake.sectionOrProvisionCitation)) {
+    missing("sectionOrProvisionCitation", `Evidence record ${record.id} is missing section or provision citation.`);
+  }
+  if (isMissingString(intake.extractionActorId)) {
+    missing("extractionActorId", `Evidence record ${record.id} is missing extraction or computation actor.`);
+  }
+  if (!Object.values(MunicipalIntakeReviewStatus).includes(intake.reviewStatus)) {
+    missing("reviewStatus", `Evidence record ${record.id} is missing review status.`);
+  } else if (intake.reviewStatus !== MunicipalIntakeReviewStatus.operator_verified) {
+    uncertain("reviewStatus", `Evidence record ${record.id} is not operator verified.`);
+  }
+
+  return details;
 }
 
 function sortAmendments(amendments: LocalAmendment[]): LocalAmendment[] {
@@ -171,6 +379,8 @@ export function assertEvidenceCompleteness(
       entityType: "baseProvision",
       entityId: provision.baseProvision.id,
       reason: "missing_evidence",
+      code: "MISSING_EVIDENCE",
+      severity: "blocking",
       message: `Base provision ${provision.baseProvision.id} has no evidence records.`,
     });
   }
@@ -195,11 +405,23 @@ export function assertEvidenceCompleteness(
         entityType: "evidenceRecord",
         entityId: record.id,
         reason: "incomplete_evidence",
+        code: "INCOMPLETE_EVIDENCE",
+        severity: "blocking",
         message: `Evidence record ${record.id} for base provision ${provision.baseProvision.id} is marked incomplete.`,
       });
     } else if (record.evidenceStatus === EvidenceStatus.unverified) {
       hasUnverifiedEvidence = true;
     }
+
+    const municipalIntakeDetails = validateMunicipalIntakeEvidence(record, "baseProvision.evidence");
+    if (municipalIntakeDetails.some((detail) => detail.severity === "blocking")) {
+      missingEvidence = true;
+    }
+    if (municipalIntakeDetails.some((detail) => detail.severity === "review_required")) {
+      hasUnverifiedEvidence = true;
+    }
+    missingFieldPaths.push(...municipalIntakeDetails.map((detail) => detail.fieldPath));
+    missingEvidenceDetails.push(...municipalIntakeDetails);
   }
 
   for (const amendment of provision.localAmendments) {
@@ -213,6 +435,8 @@ export function assertEvidenceCompleteness(
         entityType: "localAmendment",
         entityId: amendment.id,
         reason: "missing_evidence",
+        code: "MISSING_EVIDENCE",
+        severity: "blocking",
         message: `Local amendment ${amendment.id} has no evidence records.`,
       });
     }
@@ -237,11 +461,26 @@ export function assertEvidenceCompleteness(
           entityType: "evidenceRecord",
           entityId: record.id,
           reason: "incomplete_evidence",
+          code: "INCOMPLETE_EVIDENCE",
+          severity: "blocking",
           message: `Evidence record ${record.id} for local amendment ${amendment.id} is marked incomplete.`,
         });
       } else if (record.evidenceStatus === EvidenceStatus.unverified) {
         hasUnverifiedEvidence = true;
       }
+
+      const municipalIntakeDetails = validateMunicipalIntakeEvidence(
+        record,
+        `localAmendments.${amendment.id}.evidence`,
+      );
+      if (municipalIntakeDetails.some((detail) => detail.severity === "blocking")) {
+        missingEvidence = true;
+      }
+      if (municipalIntakeDetails.some((detail) => detail.severity === "review_required")) {
+        hasUnverifiedEvidence = true;
+      }
+      missingFieldPaths.push(...municipalIntakeDetails.map((detail) => detail.fieldPath));
+      missingEvidenceDetails.push(...municipalIntakeDetails);
     }
   }
 
