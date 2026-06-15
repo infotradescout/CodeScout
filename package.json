@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "test": "vitest run",
-    "test:contracts": "vitest run tests/codescout-immutable-local-amendment-foundation.contract.test.ts",
+    "test:contracts": "vitest run tests/codescout-immutable-local-amendment-foundation.contract.test.ts tests/codescout-project-requirement-matrix.contract.test.ts",
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1"
   },
